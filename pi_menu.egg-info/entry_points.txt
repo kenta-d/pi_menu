@@ -1,5 +1,0 @@
-[console_scripts]
-pi-menu = pi_menu.main:main
-
-[gui_scripts]
-pi-menu-gui = pi_menu.main:main
