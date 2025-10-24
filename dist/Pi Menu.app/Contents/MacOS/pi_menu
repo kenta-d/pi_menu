@@ -1,0 +1,63 @@
+#!/bin/bash
+
+# Pi Menu macOS Application Launcher
+# Boss1 Agent の開発によるモダンな円形アプリケーションランチャー
+
+# アプリケーションバンドルのパス設定
+BUNDLE_PATH="$(dirname "$0")/.."
+RESOURCES_PATH="$BUNDLE_PATH/Resources"
+PYTHON_APP="$RESOURCES_PATH/pi_menu"
+
+# 作業ディレクトリを設定
+cd "$RESOURCES_PATH"
+
+# Python環境の確認
+echo "🔍 Python環境を確認中..."
+
+# システムのPython3を使用
+PYTHON_CMD="python3"
+
+# PyQt6の確認
+if ! $PYTHON_CMD -c "import PyQt6" 2>/dev/null; then
+    # AppleScriptでエラーダイアログを表示
+    osascript -e 'display dialog "PyQt6がインストールされていません。\n\n必要な依存関係:\n• PyQt6\n\nインストール方法:\nbrew install pyqt@6\n\nまたは:\npipx install PyQt6" with title "Pi Menu - 依存関係エラー" buttons {"OK"} default button "OK" with icon stop'
+    exit 1
+fi
+
+# 設定ファイルの確認
+if [ ! -f "$RESOURCES_PATH/config.json" ]; then
+    # デフォルト設定を作成
+    echo "📋 デフォルト設定ファイルを作成中..."
+    cat > "$RESOURCES_PATH/config.json" << 'EOF'
+{
+    "apps": [
+        {
+            "name": "Finder",
+            "command": "open /System/Library/CoreServices/Finder.app",
+            "icon": "",
+            "favorite": true
+        },
+        {
+            "name": "Safari",
+            "command": "open /Applications/Safari.app",
+            "icon": "",
+            "favorite": true
+        },
+        {
+            "name": "Mail",
+            "command": "open /Applications/Mail.app",
+            "icon": "",
+            "favorite": true
+        }
+    ]
+}
+EOF
+fi
+
+# macOS用の環境変数を設定
+export QT_QPA_PLATFORM="cocoa"
+export PYTHONPATH="$RESOURCES_PATH:$PYTHONPATH"
+
+# Pi Menuを実行
+echo "🚀 Pi Menu を起動中..."
+exec $PYTHON_CMD "$PYTHON_APP/main_safe.py"

@@ -1,0 +1,11 @@
+{
+    "_description": "最近使用したアプリの履歴データ",
+    "_max_items": 10,
+    "_format": {
+        "command": "アプリの起動コマンド",
+        "name": "アプリ名",
+        "timestamp": "最後に使用した時刻 (ISO format)",
+        "usage_count": "使用回数"
+    },
+    "recent_apps": []
+}

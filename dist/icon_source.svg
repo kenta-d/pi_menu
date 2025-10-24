@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- グラデーション定義 -->
+    <radialGradient id="mainGradient" cx="0.3" cy="0.3" r="0.8">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="70%" style="stop-color:#764ba2;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#4a5568;stop-opacity:1" />
+    </radialGradient>
+    
+    <!-- 影のフィルター -->
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="4" dy="8" stdDeviation="8" flood-color="#000000" flood-opacity="0.3"/>
+    </filter>
+    
+    <!-- Glassmorphism効果 -->
+    <filter id="blur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2"/>
+    </filter>
+  </defs>
+  
+  <!-- 背景円 -->
+  <circle cx="256" cy="256" r="240" fill="url(#mainGradient)" filter="url(#shadow)" />
+  
+  <!-- Glassmorphism オーバーレイ -->
+  <circle cx="256" cy="256" r="240" fill="rgba(255,255,255,0.1)" />
+  
+  <!-- 外側のリング -->
+  <circle cx="256" cy="256" r="200" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2" />
+  
+  <!-- 内側のリング -->
+  <circle cx="256" cy="256" r="160" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1" />
+  
+  <!-- アプリアイコンシンボル（π記号） -->
+  <text x="256" y="290" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="120" font-weight="300" fill="white" opacity="0.9">π</text>
+  
+  <!-- 小さなドット（アプリアイコンを表現） -->
+  <circle cx="180" cy="180" r="8" fill="rgba(102,126,234,0.8)" />
+  <circle cx="332" cy="180" r="8" fill="rgba(76,175,80,0.8)" />
+  <circle cx="332" cy="332" r="8" fill="rgba(255,152,0,0.8)" />
+  <circle cx="180" cy="332" r="8" fill="rgba(156,39,176,0.8)" />
+  
+  <!-- 中央のハイライト -->
+  <circle cx="220" cy="220" r="60" fill="rgba(255,255,255,0.1)" filter="url(#blur)" />
+</svg>

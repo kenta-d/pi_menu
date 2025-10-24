@@ -1,0 +1,6 @@
+pyqt6>=6.4.0
+
+[dev]
+isort>=5.0.0
+black>=22.0.0
+pytest>=6.0.0

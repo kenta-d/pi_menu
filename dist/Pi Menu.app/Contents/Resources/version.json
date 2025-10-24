@@ -1,0 +1,42 @@
+{
+    "app_name": "Pi Menu",
+    "version": "2.0.0",
+    "build": "2025.06.27",
+    "description": "モダンな円形アプリケーションランチャー",
+    "developer": "boss1 Agent",
+    "copyright": "Copyright © 2025 boss1. All rights reserved.",
+    "license": "MIT",
+    "website": "https://github.com/boss1/pi-menu",
+    "support_email": "support@boss1.dev",
+    "minimum_macos": "10.15",
+    "architecture": ["x86_64", "arm64"],
+    "dependencies": {
+        "PyQt6": ">=6.0.0",
+        "Python": ">=3.8"
+    },
+    "features": [
+        "48種類のアプリアイコン自動認識",
+        "カテゴリ別色分け（8カテゴリ）",
+        "Glassmorphism効果のモダンUI",
+        "スムーズなホバーアニメーション",
+        "フレームレスウィンドウ",
+        "ドラッグ移動対応",
+        "ツールチップでフル名表示",
+        "設定可能なお気に入りアプリ"
+    ],
+    "changelog": {
+        "2.0.0": [
+            "完全なUIリデザイン",
+            "スマートアイコンシステム実装",
+            "カテゴリ別色分け追加",
+            "可読性とアクセシビリティ向上",
+            "エラーハンドリング強化",
+            "macOSアプリバンドル対応"
+        ],
+        "1.0.0": [
+            "初回リリース",
+            "基本的な円形レイアウト",
+            "お気に入りアプリ管理"
+        ]
+    }
+}
