@@ -1,0 +1,27 @@
+[project]
+name = "pi-menu"
+version = "0.1.0"
+description = "A macOS application launcher that displays favorite apps in a circular layout."
+readme = "README_EN.md"
+requires-python = ">=3.10"
+dependencies = [
+  "PyQt6>=6.0.0",
+]
+
+[tool.briefcase]
+project_name = "Pi Menu"
+bundle = "com.kk"
+version = "0.1.0"
+license.file = "LICENSE"
+
+[tool.briefcase.app.pi-menu]
+formal_name = "Pi Menu"
+description = "A macOS application launcher that displays favorite apps in a circular layout."
+sources = [
+  "pi_menu",
+]
+requires = [
+  "PyQt6>=6.0.0",
+]
+entry_point = "pi_menu.app:main"
+icon = "icon_assets/custom/pimenu_icon"

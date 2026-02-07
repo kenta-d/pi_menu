@@ -1,16 +1,13 @@
 import json
-import os
-
-CONFIG_FILE = "config.json"
-MAC_APPS_DIR = "/Applications/"
+from pathlib import Path
 
 
-def get_mac_apps():
+def get_mac_apps(apps_dir: Path):
     apps = []
-    for app in os.listdir(MAC_APPS_DIR):
-        if app.endswith(".app"):
-            app_name = app.replace(".app", "")
-            app_path = f"open {MAC_APPS_DIR}{app}"
+    for app in apps_dir.iterdir():
+        if app.name.endswith(".app"):
+            app_name = app.name.replace(".app", "")
+            app_path = f"open {app}"
             apps.append(
                 {
                     "name": app_name,
@@ -22,19 +19,31 @@ def get_mac_apps():
     return apps
 
 
-def generate_config():
-    if os.path.exists(CONFIG_FILE):
-        print(f"{CONFIG_FILE} は既に存在します。")
+def _default_config_path() -> Path:
+    return Path.home() / "Library" / "Application Support" / "PiMenu" / "config.json"
+
+
+def generate_config(config_path: Path, apps_dir: Path | None = None):
+    if apps_dir is None:
+        apps_dir = Path("/Applications")
+
+    if config_path.exists():
+        print(f"{config_path} は既に存在します。")
         return
 
-    data = {"apps": get_mac_apps()}
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    data = {"apps": get_mac_apps(apps_dir)}
 
     # いくつかのアプリを「お気に入り」に設定
     if len(data["apps"]) >= 3:
         data["apps"][0]["favorite"] = True
         data["apps"][1]["favorite"] = True
 
-    with open(CONFIG_FILE, "w") as file:
+    with open(config_path, "w") as file:
         json.dump(data, file, indent=4, ensure_ascii=False)
 
-    print(f"{CONFIG_FILE} を生成しました！")
+    print(f"{config_path} を生成しました！")
+
+
+if __name__ == "__main__":
+    generate_config(_default_config_path())

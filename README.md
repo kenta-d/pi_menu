@@ -44,6 +44,20 @@ python pi_menu/main.py
 
 アプリケーション起動後、左上の「⭐ お気に入り設定」ボタンをクリックして、お気に入りアプリを選択できます。
 
+## GitHub Releases 版のインストール
+
+1. GitHub Releases から `Pi Menu-0.1.0.app.zip` をダウンロード
+2. ZIP を展開
+3. `Pi Menu.app` を `/Applications` に移動
+4. 初回起動は `右クリック > 開く` で許可
+
+> 署名なし配布のため、初回は Gatekeeper の警告が出ます。
+
+### テーマ設定（任意）
+
+`~/Library/Application Support/PiMenu/theme.json` を作成すると、
+色・透明度・文字サイズ・アイコンサイズなどを調整できます。
+
 ## 設定ファイル (config.json)
 
 `config.json`には以下の形式でアプリ情報が保存されます：

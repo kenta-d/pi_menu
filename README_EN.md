@@ -42,6 +42,20 @@ python pi_menu/main.py
 
 After launching the application, click the "⭐ お気に入り設定" (Favorite Settings) button in the top-left corner to select your favorite apps.
 
+## Install (GitHub Releases)
+
+1. Download `Pi Menu-0.1.0.app.zip` from GitHub Releases
+2. Unzip it
+3. Move `Pi Menu.app` to `/Applications`
+4. First launch: `Right click > Open`
+
+> Because this build is unsigned, Gatekeeper will show a warning on first launch.
+
+### Theme (Optional)
+
+Create `~/Library/Application Support/PiMenu/theme.json` to customize
+colors, transparency, font size, and icon size.
+
 ## Configuration File (config.json)
 
 The `config.json` file stores app information in the following format:

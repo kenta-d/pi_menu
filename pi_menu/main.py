@@ -1,27 +1,127 @@
 import json
 import math
-import os
+import plistlib
+import shlex
 import subprocess
 import sys
+from pathlib import Path
 
-import shlex
+from PyQt6.QtCore import QFileInfo, QSize, Qt
+from PyQt6.QtGui import QIcon, QPainter
+from PyQt6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QFileIconProvider,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 
-from PyQt6.QtCore import QSize
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtWidgets import QPushButton
-from PyQt6.QtWidgets import QVBoxLayout
-from PyQt6.QtWidgets import QWidget
-from PyQt6.QtGui import QPainter
+
+def _config_file_path() -> Path:
+    # Resolve to a user-writable location, even inside a signed app bundle.
+    return Path.home() / "Library" / "Application Support" / "PiMenu" / "config.json"
+
+def _theme_file_path() -> Path:
+    return Path.home() / "Library" / "Application Support" / "PiMenu" / "theme.json"
 
 
-CONFIG_FILE = "./config.json"
+def _load_theme() -> dict:
+    default_theme = {
+        "background_gradient": ["#F8FAFF", "#E3EAF6"],
+        "text_color": "#1B1F2A",
+        "settings_button": {
+            "bg": "rgba(255, 255, 255, 0.65)",
+            "bg_hover": "rgba(255, 255, 255, 0.85)",
+            "border": "rgba(255, 255, 255, 0.9)",
+            "text": "#1B1F2A",
+            "radius": 10,
+        },
+        "button": {
+            "bg": "rgba(255, 255, 255, 0.55)",
+            "bg_hover": "rgba(255, 255, 255, 0.8)",
+            "border": "rgba(255, 255, 255, 0.9)",
+            "border_hover": "rgba(255, 255, 255, 1)",
+            "text": "#1B1F2A",
+            "font_size": 10,
+            "icon_size": 48,
+        },
+    }
 
-import json
-import os
-from PyQt6.QtWidgets import QDialog, QVBoxLayout, QListWidget, QPushButton, QListWidgetItem, QCheckBox
+    theme_path = _theme_file_path()
+    if not theme_path.exists():
+        return default_theme
 
+    try:
+        with open(theme_path, "r") as f:
+            user_theme = json.load(f)
+    except Exception:
+        return default_theme
+
+    # Shallow merge; nested dicts override defaults
+    merged = {**default_theme, **user_theme}
+    for key in ("settings_button", "button"):
+        if key in user_theme and isinstance(user_theme[key], dict):
+            merged[key] = {**default_theme[key], **user_theme[key]}
+    return merged
+def _app_bundle_from_command(command: str) -> Path | None:
+    if not command.startswith("open "):
+        return None
+    # The config uses: "open /Applications/App Name.app" (not quoted).
+    raw_path = command[5:].strip()
+    if (raw_path.startswith('"') and raw_path.endswith('"')) or (
+        raw_path.startswith("'") and raw_path.endswith("'")
+    ):
+        raw_path = raw_path[1:-1]
+    bundle = Path(raw_path)
+    if bundle.suffix != ".app":
+        return None
+    return bundle
+
+
+def _icon_path_for_app(command: str) -> Path | None:
+    bundle = _app_bundle_from_command(command)
+    if bundle is None:
+        return None
+    info_plist = bundle / "Contents" / "Info.plist"
+    resources_dir = bundle / "Contents" / "Resources"
+    if not info_plist.exists():
+        return None
+    try:
+        with open(info_plist, "rb") as f:
+            plist = plistlib.load(f)
+    except Exception:
+        return None
+    icon_name = plist.get("CFBundleIconFile")
+    if icon_name:
+        icon_path = resources_dir / icon_name
+        if icon_path.suffix == "":
+            icon_path = icon_path.with_suffix(".icns")
+        if icon_path.exists():
+            return icon_path
+    # Fallback: first .icns in Resources
+    for candidate in resources_dir.glob("*.icns"):
+        return candidate
+    return None
+
+
+def _qt_icon_for_app(command: str) -> QIcon | None:
+    icon_path = _icon_path_for_app(command)
+    if icon_path:
+        icon = QIcon(str(icon_path))
+        if not icon.isNull():
+            return icon
+
+    bundle = _app_bundle_from_command(command)
+    if bundle:
+        provider = QFileIconProvider()
+        icon = provider.icon(QFileInfo(str(bundle)))
+        if not icon.isNull():
+            return icon
+    return None
 
 class FavoriteSettings(QDialog):
     def __init__(self, config_file, parent=None):
@@ -43,7 +143,7 @@ class FavoriteSettings(QDialog):
 
     def load_apps(self):
         """config.json からアプリを読み込み、リストに表示"""
-        if not os.path.exists(self.config_file):
+        if not self.config_file.exists():
             print(f"⚠️ 設定ファイルが見つかりません: {self.config_file}")
             return
 
@@ -52,19 +152,13 @@ class FavoriteSettings(QDialog):
 
         for app in data["apps"]:
             item = QListWidgetItem(app["name"])
-            checkbox = QCheckBox()
-            checkbox.setChecked(app.get("favorite", False))
-            checkbox.stateChanged.connect(lambda state, app=app: self.toggle_favorite(app, state))
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked if app.get("favorite", False) else Qt.CheckState.Unchecked)
             self.app_list.addItem(item)
-            self.app_list.setItemWidget(item, checkbox)
-
-    def toggle_favorite(self, app, state):
-        """お気に入りフラグを変更"""
-        app["favorite"] = state == 2  # Qt.Checked = 2
 
     def save_favorites(self):
         """config.json を更新"""
-        if not os.path.exists(self.config_file):
+        if not self.config_file.exists():
             return
 
         with open(self.config_file, "r") as file:
@@ -72,11 +166,11 @@ class FavoriteSettings(QDialog):
 
         for i in range(self.app_list.count()):
             item = self.app_list.item(i)
-            checkbox = self.app_list.itemWidget(item)
             for app in data["apps"]:
                 if app["name"] == item.text():
-                    app["favorite"] = checkbox.isChecked()
+                    app["favorite"] = item.checkState() == Qt.CheckState.Checked
 
+        self.config_file.parent.mkdir(parents=True, exist_ok=True)
         with open(self.config_file, "w") as file:
             json.dump(data, file, indent=4, ensure_ascii=False)
 
@@ -89,11 +183,28 @@ class PiMenu(QWidget):
         self.main_layout = QVBoxLayout(self)  # Define main_layout here
         self.favorite_buttons = []
         self.favorite_apps = []
+        self.config_file = _config_file_path()
+        self.theme = _load_theme()
         self.initUI()
 
     def initUI(self):
         self.setWindowTitle("Pi Menu")
         self.setGeometry(100, 100, 800, 600)
+        # High-contrast base theme
+        bg0, bg1 = self.theme["background_gradient"]
+        text_color = self.theme["text_color"]
+        self.setStyleSheet(
+            f"""
+            QWidget {{
+                background: qlineargradient(
+                    x1: 0, y1: 0, x2: 1, y2: 1,
+                    stop: 0 {bg0},
+                    stop: 1 {bg1}
+                );
+                color: {text_color};
+            }}
+            """
+        )
 
         self.favorite_buttons = []
         self.favorite_apps = []
@@ -105,12 +216,27 @@ class PiMenu(QWidget):
         settings_button = QPushButton("⭐ お気に入り設定", self)
         settings_button.setGeometry(10, 10, 150, 40)
         settings_button.clicked.connect(self.open_favorite_settings)
+        sb = self.theme["settings_button"]
+        settings_button.setStyleSheet(
+            f"""
+            QPushButton {{
+                background-color: {sb['bg']};
+                color: {sb['text']};
+                border: 1px solid {sb['border']};
+                border-radius: {sb['radius']}px;
+                padding: 6px 10px;
+            }}
+            QPushButton:hover {{
+                background-color: {sb['bg_hover']};
+            }}
+            """
+        )
         settings_button.setParent(self)
         settings_button.show()
 
     def open_favorite_settings(self):
         """お気に入りアプリの設定ウィンドウを開く"""
-        settings = FavoriteSettings(CONFIG_FILE, self)
+        settings = FavoriteSettings(self.config_file, self)
         if settings.exec():  # ユーザーが「保存」した場合のみ
             self.load_favorites()
             self.create_circle_buttons()  # UI を更新
@@ -120,11 +246,11 @@ class PiMenu(QWidget):
         """お気に入りアプリを `config.json` から取得"""
         self.favorite_apps = []
         
-        if not os.path.exists(CONFIG_FILE):
-            print(f"⚠️ 設定ファイルが見つかりません: {CONFIG_FILE}")
+        if not self.config_file.exists():
+            print(f"⚠️ 設定ファイルが見つかりません: {self.config_file}")
             return
 
-        with open(CONFIG_FILE, "r") as file:
+        with open(self.config_file, "r") as file:
             data = json.load(file)
 
         self.favorite_apps = [app for app in data["apps"] if app.get("favorite", False)]
@@ -155,26 +281,34 @@ class PiMenu(QWidget):
 
             print(f"{app['name']} の位置: x={x}, y={y}")
 
-            btn = QPushButton(app["name"], self)
+            btn = QToolButton(self)
+            btn.setText(app["name"])
             btn.setFixedSize(button_size, button_size)
             btn.app_command = app["command"]
             btn.clicked.connect(self.handle_button_click)
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
 
-            btn.setStyleSheet("""
-                QPushButton {
+            bt = self.theme["button"]
+            btn.setStyleSheet(
+                f"""
+                QToolButton {{
                     border-radius: 40px;
-                    background-color: #f0f0f0;
-                    border: 2px solid #d0d0d0;
-                    font-size: 10px;
+                    background-color: {bt['bg']};
+                    color: {bt['text']};
+                    border: 1px solid {bt['border']};
+                    font-size: {bt['font_size']}px;
                     text-align: center;
-                }
-                QPushButton:hover {
-                    background-color: #e0e0e0;
-                    border: 2px solid #c0c0c0;
-                }
-            """)
-            btn.setIcon(QIcon(app.get("icon", "")))
-            btn.setIconSize(QSize(40, 40))
+                }}
+                QToolButton:hover {{
+                    background-color: {bt['bg_hover']};
+                    border: 1px solid {bt['border_hover']};
+                }}
+                """
+            )
+            icon = _qt_icon_for_app(app.get("command", ""))
+            if icon:
+                btn.setIcon(icon)
+            btn.setIconSize(QSize(int(bt["icon_size"]), int(bt["icon_size"])))
             btn.move(int(x), int(y))
             btn.setParent(self)
             btn.show()
