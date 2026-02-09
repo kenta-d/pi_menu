@@ -6,12 +6,22 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PyQt6.QtCore import QFileInfo, QSize, Qt
-from PyQt6.QtGui import QIcon, QPainter
+from PyQt6.QtCore import QFileInfo, QPoint, QPropertyAnimation, QSize, Qt, QTimer
+from PyQt6.QtGui import (
+    QBrush,
+    QColor,
+    QIcon,
+    QLinearGradient,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QRadialGradient,
+)
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
     QFileIconProvider,
+    QGraphicsDropShadowEffect,
     QListWidget,
     QListWidgetItem,
     QPushButton,
@@ -22,8 +32,8 @@ from PyQt6.QtWidgets import (
 
 
 def _config_file_path() -> Path:
-    # Resolve to a user-writable location, even inside a signed app bundle.
     return Path.home() / "Library" / "Application Support" / "PiMenu" / "config.json"
+
 
 def _theme_file_path() -> Path:
     return Path.home() / "Library" / "Application Support" / "PiMenu" / "theme.json"
@@ -31,24 +41,16 @@ def _theme_file_path() -> Path:
 
 def _load_theme() -> dict:
     default_theme = {
-        "background_gradient": ["#F8FAFF", "#E3EAF6"],
-        "text_color": "#1B1F2A",
-        "settings_button": {
-            "bg": "rgba(255, 255, 255, 0.65)",
-            "bg_hover": "rgba(255, 255, 255, 0.85)",
-            "border": "rgba(255, 255, 255, 0.9)",
-            "text": "#1B1F2A",
-            "radius": 10,
-        },
-        "button": {
-            "bg": "rgba(255, 255, 255, 0.55)",
-            "bg_hover": "rgba(255, 255, 255, 0.8)",
-            "border": "rgba(255, 255, 255, 0.9)",
-            "border_hover": "rgba(255, 255, 255, 1)",
-            "text": "#1B1F2A",
-            "font_size": 10,
-            "icon_size": 48,
-        },
+        "background_color": "rgba(30, 30, 40, 200)",
+        "ring_color": "rgba(100, 180, 255, 80)",
+        "ring_glow_color": "rgba(100, 180, 255, 40)",
+        "center_gradient_start": "#667eea",
+        "center_gradient_end": "#764ba2",
+        "center_border_color": "rgba(255, 255, 255, 100)",
+        "icon_bg": "rgba(40, 40, 50, 180)",
+        "icon_bg_hover": "rgba(60, 60, 80, 220)",
+        "icon_border": "rgba(100, 100, 120, 100)",
+        "icon_shadow_color": "rgba(0, 0, 0, 80)",
     }
 
     theme_path = _theme_file_path()
@@ -61,16 +63,12 @@ def _load_theme() -> dict:
     except Exception:
         return default_theme
 
-    # Shallow merge; nested dicts override defaults
-    merged = {**default_theme, **user_theme}
-    for key in ("settings_button", "button"):
-        if key in user_theme and isinstance(user_theme[key], dict):
-            merged[key] = {**default_theme[key], **user_theme[key]}
-    return merged
+    return {**default_theme, **user_theme}
+
+
 def _app_bundle_from_command(command: str) -> Path | None:
     if not command.startswith("open "):
         return None
-    # The config uses: "open /Applications/App Name.app" (not quoted).
     raw_path = command[5:].strip()
     if (raw_path.startswith('"') and raw_path.endswith('"')) or (
         raw_path.startswith("'") and raw_path.endswith("'")
@@ -102,7 +100,6 @@ def _icon_path_for_app(command: str) -> Path | None:
             icon_path = icon_path.with_suffix(".icns")
         if icon_path.exists():
             return icon_path
-    # Fallback: first .icns in Resources
     for candidate in resources_dir.glob("*.icns"):
         return candidate
     return None
@@ -123,28 +120,59 @@ def _qt_icon_for_app(command: str) -> QIcon | None:
             return icon
     return None
 
+
 class FavoriteSettings(QDialog):
     def __init__(self, config_file, parent=None):
         super().__init__(parent)
         self.config_file = config_file
-        self.setWindowTitle("お気に入りアプリ設定")
+        self.setWindowTitle("Favorite Apps Settings")
         self.setGeometry(200, 200, 400, 500)
+        self.setStyleSheet(
+            """
+            QDialog {
+                background-color: rgba(30, 30, 40, 240);
+                color: white;
+            }
+            QListWidget {
+                background-color: rgba(40, 40, 50, 200);
+                color: white;
+                border: 1px solid rgba(100, 100, 120, 100);
+                border-radius: 8px;
+            }
+            QListWidget::item {
+                padding: 8px;
+            }
+            QListWidget::item:hover {
+                background-color: rgba(60, 60, 80, 200);
+            }
+            QPushButton {
+                background-color: rgba(100, 180, 255, 180);
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 10px 20px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: rgba(100, 180, 255, 220);
+            }
+            """
+        )
 
         layout = QVBoxLayout()
         self.app_list = QListWidget()
         self.load_apps()
         layout.addWidget(self.app_list)
 
-        save_button = QPushButton("保存")
+        save_button = QPushButton("Save")
         save_button.clicked.connect(self.save_favorites)
         layout.addWidget(save_button)
 
         self.setLayout(layout)
 
     def load_apps(self):
-        """config.json からアプリを読み込み、リストに表示"""
         if not self.config_file.exists():
-            print(f"⚠️ 設定ファイルが見つかりません: {self.config_file}")
+            print(f"Config file not found: {self.config_file}")
             return
 
         with open(self.config_file, "r") as file:
@@ -153,11 +181,14 @@ class FavoriteSettings(QDialog):
         for app in data["apps"]:
             item = QListWidgetItem(app["name"])
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Checked if app.get("favorite", False) else Qt.CheckState.Unchecked)
+            item.setCheckState(
+                Qt.CheckState.Checked
+                if app.get("favorite", False)
+                else Qt.CheckState.Unchecked
+            )
             self.app_list.addItem(item)
 
     def save_favorites(self):
-        """config.json を更新"""
         if not self.config_file.exists():
             return
 
@@ -174,203 +205,278 @@ class FavoriteSettings(QDialog):
         with open(self.config_file, "w") as file:
             json.dump(data, file, indent=4, ensure_ascii=False)
 
-        print("✅ お気に入りアプリを保存しました")
+        print("Favorites saved")
         self.accept()
+
 
 class PiMenu(QWidget):
     def __init__(self):
         super().__init__()
-        self.main_layout = QVBoxLayout(self)  # Define main_layout here
         self.favorite_buttons = []
         self.favorite_apps = []
         self.config_file = _config_file_path()
         self.theme = _load_theme()
+        self.drag_position = None
+        self.ring_animation_angle = 0
         self.initUI()
 
     def initUI(self):
         self.setWindowTitle("Pi Menu")
-        self.setGeometry(100, 100, 800, 600)
-        # High-contrast base theme
-        bg0, bg1 = self.theme["background_gradient"]
-        text_color = self.theme["text_color"]
-        self.setStyleSheet(
-            f"""
-            QWidget {{
-                background: qlineargradient(
-                    x1: 0, y1: 0, x2: 1, y2: 1,
-                    stop: 0 {bg0},
-                    stop: 1 {bg1}
-                );
-                color: {text_color};
-            }}
-            """
+        self.setFixedSize(500, 500)
+
+        # Frameless transparent window
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
         )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         self.favorite_buttons = []
         self.favorite_apps = []
         self.load_favorites()
-
         self.create_circle_buttons()
 
-        # ⭐ **「お気に入り設定」ボタンを追加**
-        settings_button = QPushButton("⭐ お気に入り設定", self)
-        settings_button.setGeometry(10, 10, 150, 40)
-        settings_button.clicked.connect(self.open_favorite_settings)
-        sb = self.theme["settings_button"]
-        settings_button.setStyleSheet(
-            f"""
-            QPushButton {{
-                background-color: {sb['bg']};
-                color: {sb['text']};
-                border: 1px solid {sb['border']};
-                border-radius: {sb['radius']}px;
-                padding: 6px 10px;
-            }}
-            QPushButton:hover {{
-                background-color: {sb['bg_hover']};
-            }}
-            """
-        )
-        settings_button.setParent(self)
-        settings_button.show()
+        # Ring animation timer
+        self.animation_timer = QTimer(self)
+        self.animation_timer.timeout.connect(self.update_ring_animation)
+        self.animation_timer.start(50)
 
-    def open_favorite_settings(self):
-        """お気に入りアプリの設定ウィンドウを開く"""
-        settings = FavoriteSettings(self.config_file, self)
-        if settings.exec():  # ユーザーが「保存」した場合のみ
-            self.load_favorites()
-            self.create_circle_buttons()  # UI を更新
-    
+        # Center the window on screen
+        self.center_on_screen()
+
+    def center_on_screen(self):
+        screen = QApplication.primaryScreen().geometry()
+        x = (screen.width() - self.width()) // 2
+        y = (screen.height() - self.height()) // 2
+        self.move(x, y)
+
+    def update_ring_animation(self):
+        self.ring_animation_angle = (self.ring_animation_angle + 1) % 360
+        self.update()
 
     def load_favorites(self):
-        """お気に入りアプリを `config.json` から取得"""
         self.favorite_apps = []
-        
+
         if not self.config_file.exists():
-            print(f"⚠️ 設定ファイルが見つかりません: {self.config_file}")
+            print(f"Config file not found: {self.config_file}")
             return
 
         with open(self.config_file, "r") as file:
             data = json.load(file)
 
-        self.favorite_apps = [app for app in data["apps"] if app.get("favorite", False)]
+        self.favorite_apps = [
+            app for app in data["apps"] if app.get("favorite", False)
+        ]
 
-        print(f"✅ お気に入りアプリを更新: {self.favorite_apps}")
-    
     def create_circle_buttons(self):
-        """お気に入りアプリのボタンを円形レイアウトで作成"""
-        # 既存のボタンを削除
         for btn in self.favorite_buttons:
             btn.deleteLater()
         self.favorite_buttons.clear()
 
         if not self.favorite_apps:
-            print("⚠️ お気に入りアプリがありません")
             return
 
-        # 円形レイアウトの中心と半径を計算
         center_x = self.width() // 2
         center_y = self.height() // 2
-        radius = min(self.width(), self.height()) // 3
-        button_size = 80
+        radius = 160
+        button_size = 64
 
         for i, app in enumerate(self.favorite_apps):
             angle = (2 * math.pi * i / len(self.favorite_apps)) - (math.pi / 2)
             x = center_x + (radius * math.cos(angle)) - (button_size // 2)
             y = center_y + (radius * math.sin(angle)) - (button_size // 2)
 
-            print(f"{app['name']} の位置: x={x}, y={y}")
-
             btn = QToolButton(self)
-            btn.setText(app["name"])
             btn.setFixedSize(button_size, button_size)
             btn.app_command = app["command"]
+            btn.app_name = app["name"]
             btn.clicked.connect(self.handle_button_click)
-            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
-            bt = self.theme["button"]
             btn.setStyleSheet(
                 f"""
                 QToolButton {{
-                    border-radius: 40px;
-                    background-color: {bt['bg']};
-                    color: {bt['text']};
-                    border: 1px solid {bt['border']};
-                    font-size: {bt['font_size']}px;
-                    text-align: center;
+                    border-radius: {button_size // 2}px;
+                    background-color: {self.theme['icon_bg']};
+                    border: 1px solid {self.theme['icon_border']};
                 }}
                 QToolButton:hover {{
-                    background-color: {bt['bg_hover']};
-                    border: 1px solid {bt['border_hover']};
+                    background-color: {self.theme['icon_bg_hover']};
+                    border: 1px solid rgba(100, 180, 255, 150);
                 }}
                 """
             )
+
+            # Add shadow effect
+            shadow = QGraphicsDropShadowEffect()
+            shadow.setBlurRadius(15)
+            shadow.setColor(QColor(0, 0, 0, 100))
+            shadow.setOffset(0, 3)
+            btn.setGraphicsEffect(shadow)
+
             icon = _qt_icon_for_app(app.get("command", ""))
             if icon:
                 btn.setIcon(icon)
-            btn.setIconSize(QSize(int(bt["icon_size"]), int(bt["icon_size"])))
+            btn.setIconSize(QSize(48, 48))
             btn.move(int(x), int(y))
+            btn.setToolTip(app["name"])
             btn.setParent(self)
             btn.show()
 
             self.favorite_buttons.append(btn)
 
-
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # 円の中心と半径
         center_x = self.width() // 2
         center_y = self.height() // 2
-        radius = min(self.width(), self.height()) // 3  # 半径の設定
+        window_radius = min(self.width(), self.height()) // 2 - 10
 
-        # ガイドライン用の円を描画（デバッグ用）
-        painter.setPen(Qt.PenStyle.DashLine)
-        painter.drawEllipse(int(center_x - radius), int(center_y - radius), int(radius * 2), int(radius * 2))
+        # Draw circular background
+        bg_path = QPainterPath()
+        bg_path.addEllipse(
+            center_x - window_radius,
+            center_y - window_radius,
+            window_radius * 2,
+            window_radius * 2,
+        )
+        painter.fillPath(bg_path, QColor(30, 30, 40, 200))
+
+        # Draw outer glow ring
+        ring_radius = 170
+        ring_width = 3
+
+        # Animated gradient for the ring
+        gradient = QLinearGradient(
+            center_x - ring_radius,
+            center_y - ring_radius,
+            center_x + ring_radius,
+            center_y + ring_radius,
+        )
+
+        angle_offset = self.ring_animation_angle / 360.0
+        gradient.setColorAt((0 + angle_offset) % 1.0, QColor(100, 180, 255, 120))
+        gradient.setColorAt((0.25 + angle_offset) % 1.0, QColor(130, 100, 255, 80))
+        gradient.setColorAt((0.5 + angle_offset) % 1.0, QColor(100, 180, 255, 120))
+        gradient.setColorAt((0.75 + angle_offset) % 1.0, QColor(180, 100, 255, 80))
+
+        pen = QPen(QBrush(gradient), ring_width)
+        painter.setPen(pen)
+        painter.drawEllipse(
+            int(center_x - ring_radius),
+            int(center_y - ring_radius),
+            int(ring_radius * 2),
+            int(ring_radius * 2),
+        )
+
+        # Draw outer glow effect
+        for i in range(5):
+            glow_pen = QPen(QColor(100, 180, 255, 30 - i * 5), ring_width + i * 2)
+            painter.setPen(glow_pen)
+            painter.drawEllipse(
+                int(center_x - ring_radius),
+                int(center_y - ring_radius),
+                int(ring_radius * 2),
+                int(ring_radius * 2),
+            )
+
+        # Draw center circle with gradient
+        center_radius = 50
+        center_gradient = QRadialGradient(center_x, center_y, center_radius)
+        center_gradient.setColorAt(0, QColor(102, 126, 234, 255))
+        center_gradient.setColorAt(0.7, QColor(118, 75, 162, 255))
+        center_gradient.setColorAt(1, QColor(90, 60, 140, 255))
+
+        painter.setPen(QPen(QColor(255, 255, 255, 100), 2))
+        painter.setBrush(QBrush(center_gradient))
+        painter.drawEllipse(
+            center_x - center_radius,
+            center_y - center_radius,
+            center_radius * 2,
+            center_radius * 2,
+        )
+
+        # Draw "P" text with pi symbol
+        painter.setPen(QColor(255, 255, 255, 230))
+        font = painter.font()
+        font.setPointSize(32)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(
+            center_x - center_radius,
+            center_y - center_radius,
+            center_radius * 2,
+            center_radius * 2,
+            Qt.AlignmentFlag.AlignCenter,
+            "P",
+        )
+
+        # Draw small pi symbol
+        font.setPointSize(14)
+        font.setBold(False)
+        painter.setFont(font)
+        painter.setPen(QColor(255, 255, 255, 180))
+        painter.drawText(
+            center_x + 8,
+            center_y + 20,
+            "\u03c0",
+        )
 
         painter.end()
 
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            center = QPoint(self.width() // 2, self.height() // 2)
+            distance = (event.position().toPoint() - center).manhattanLength()
+
+            # Click on center opens settings
+            if distance < 50:
+                self.open_favorite_settings()
+            else:
+                self.drag_position = event.globalPosition().toPoint() - self.pos()
+
+        elif event.button() == Qt.MouseButton.RightButton:
+            self.close()
+
+    def mouseMoveEvent(self, event):
+        if self.drag_position and event.buttons() == Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self.drag_position)
+
+    def mouseReleaseEvent(self, event):
+        self.drag_position = None
+
+    def open_favorite_settings(self):
+        settings = FavoriteSettings(self.config_file, self)
+        if settings.exec():
+            self.load_favorites()
+            self.create_circle_buttons()
+
     def handle_button_click(self):
-        # 送信者のボタンからコマンドを取得
         button = self.sender()
         if not button:
-            print("⚠️ handle_button_click: クリックされたボタンが取得できませんでした")
             return
 
-        print(
-            f"クリックされたボタン: {button.text()}"
-        )  # クリックされたボタンのテキストを表示
-
         if hasattr(button, "app_command") and button.app_command:
-            print(f"実行するコマンド: {button.app_command}")  # 実行するコマンドを表示
             self.launch_app(button.app_command)
-        else:
-            print("⚠️ ボタンにコマンドが設定されていません")
-
 
     def launch_app(self, command):
         try:
-            print(f"実行するコマンド: {command}")  # デバッグ出力
-
             if command.startswith("open "):
-                # スペースを含むパスを適切に処理
-                command = f'open {shlex.quote(command[5:])}'
-                result = subprocess.run(command, shell=True, check=True, capture_output=True, text=True)
+                command = f"open {shlex.quote(command[5:])}"
+                subprocess.run(command, shell=True, check=True, capture_output=True)
             else:
-                result = subprocess.run(command.split(), check=True, capture_output=True, text=True)
-
-            print(f"コマンド実行結果: {result.stdout}")  # 標準出力を表示
-            print(f"エラー出力: {result.stderr}")  # 標準エラーを表示
+                subprocess.run(command.split(), check=True, capture_output=True)
 
         except subprocess.CalledProcessError as e:
-            print(f"アプリの起動に失敗しました: {e}\nコマンド: {command}")
+            print(f"Failed to launch app: {e}")
         except Exception as e:
-            print(f"アプリの起動に失敗しました: {e}")
+            print(f"Failed to launch app: {e}")
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.create_circle_buttons()  # ウィンドウサイズ変更時にボタンを再配置
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self.close()
 
 
 if __name__ == "__main__":
